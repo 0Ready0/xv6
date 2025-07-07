@@ -100,9 +100,11 @@ uint64
 sys_trace(void)
 {
 
-  int n;
-  if(argint(0, &n) < 0)
+  int mask;
+  if(argint(0, &mask) < 0)
     return -1;
-  printf("this is sys_trace");
+  
+  struct proc *p = myproc();
+  p->trace_mask = mask;
   return 0;
 }
