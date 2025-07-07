@@ -102,10 +102,10 @@ sys_trace(void)
 {
 
   int mask;
-  if(argint(0, &mask) < 0)
-    return -1;
-  
-  struct proc *p = myproc();
+  // 获取当前执行的系统调用的System call numbers
+  if(argint(0, &mask) < 0)  // argint(): 从当前进程的系统调用参数中获取整数参数
+    return -1;              //    -> 系统调用参数通过寄存器传递 -> argint 从当前进程的陷阱帧（trapframe）中读取指定位置的参数（如第 n 个参数）
+  struct proc *p = myproc();  // myproc(): 获取指向当前进程的 struct proc指针
   p->trace_mask = mask;
   return 0;
 }
@@ -115,7 +115,7 @@ sys_sysinfo(void){
   
   // 从用户态读入一个指针作为存放sysinfo结构的缓冲区
   uint64 addr;
-  if(argaddr(0, &addr) < 0){
+  if(argaddr(0, &addr) < 0){   // argaddr() : 从系统调用参数中获取一个地址
     return -1;
   }
 
@@ -125,7 +125,7 @@ sys_sysinfo(void){
 
   // 使用copyout，结合当前进程的页表，获得进程传进来的指针（逻辑指针）对应的物理地址
   // 然后将 &sinfo 中的数据复制到该指针所知位置，供用户进程使用
-  if(copyout(myproc()->pagetable, addr, (char*)&sinfo, sizeof(sinfo)) < 0){
+  if(copyout(myproc()->pagetable, addr, (char*)&sinfo, sizeof(sinfo)) < 0){ // copyout() : 将数据从内核空间安全复制到用户空间。
     return -1;
   }
   return 0;

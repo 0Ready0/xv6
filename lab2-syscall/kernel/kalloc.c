@@ -86,7 +86,7 @@ uint64 count_free_mem(void){
   // 函数描述  ->   计算剩余的内存空间
 
   acquire(&kmem.lock);  // 对内存管理结构加锁，防止竞态条件出现
-
+                        // acquire() 添加自旋锁
   // 统计空闲页表，乘上 页大小PGSIZE 就是空闲的内存字节数
   uint64 mem_bytes = 0;
   struct run *r  = kmem.freelist;
