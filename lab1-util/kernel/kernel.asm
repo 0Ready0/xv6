@@ -1583,9 +1583,19 @@ push_off(void)
     80000bc8:	e822                	sd	s0,16(sp)
     80000bca:	e426                	sd	s1,8(sp)
     80000bcc:	1000                	addi	s0,sp,32
+
+static inline uint64
+r_sstatus()
+{
+  uint64 x;
   asm volatile("csrr %0, sstatus" : "=r" (x) );
     80000bce:	100024f3          	csrr	s1,sstatus
     80000bd2:	100027f3          	csrr	a5,sstatus
+
+// disable device interrupts
+static inline void
+intr_off()
+{
   w_sstatus(r_sstatus() & ~SSTATUS_SIE);
     80000bd6:	9bf5                	andi	a5,a5,-3
   asm volatile("csrw sstatus, %0" : : "r" (x));
@@ -1614,6 +1624,11 @@ push_off(void)
     mycpu()->intena = old;
     80000c00:	00001097          	auipc	ra,0x1
     80000c04:	dc2080e7          	jalr	-574(ra) # 800019c2 <mycpu>
+// are device interrupts enabled?
+static inline int
+intr_get()
+{
+  uint64 x = r_sstatus();
   return (x & SSTATUS_SIE) != 0;
     80000c08:	8085                	srli	s1,s1,0x1
     80000c0a:	8885                	andi	s1,s1,1
