@@ -1,3 +1,6 @@
+// 文件描述
+// user.h扮演着用户空间程序的API网关角色，定义里用户程序可以访问的所有操作系统服务和库函数
+
 struct stat;
 struct rtcdate;
 

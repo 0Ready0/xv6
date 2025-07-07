@@ -1,3 +1,12 @@
+// 文件描述
+// syscall文件 在 xv6 操作系统中扮演着系统调用的调度中心角色
+// 它是连接用户空间请求和内核实现的关键枢纽
+
+// 系统调用号定义	#define SYS_fork 1 等宏定义	    用户态与内核态的统一标识符
+// 系统调用表声明	extern uint64 sys_fork(void)	建立调用号与实现函数的映射关系
+// 参数传递规范	    通过寄存器约定	                实现用户/内核空间数据交换
+// 错误处理接口	    struct proc 中的错误状态	    向用户空间返回错误信息
+
 // System call numbers
 #define SYS_fork    1
 #define SYS_exit    2

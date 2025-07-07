@@ -1,3 +1,7 @@
+# 文件描述
+# Perl语言主要用于构建过程的自动化，特别是生成与系统调用相关的底层代码
+# Perl脚本（如 usys.pl）用于自动生成汇编文件 usys.S，该文件包含用户空间调用系统调用的入口代码。
+
 #!/usr/bin/perl -w
 
 # Generate usys.S, the stubs for syscalls.
