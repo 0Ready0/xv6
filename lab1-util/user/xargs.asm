@@ -60,11 +60,12 @@ int main(int argc, char *argv[]){
   64:	7f010413          	addi	s0,sp,2032
   68:	ba010113          	addi	sp,sp,-1120
   6c:	8a2e                	mv	s4,a1
-	// 手动绘图，更加详细流程
-	// 1. for循环  将argv中参数读出 -----保存至----->  argsbuf
-	// 2. while函数  然后将echo的读入参数读出  ----保存至---->  argsbuf的尾部
-	// 3. 遇到'\n'结束符，通过exec执行argsbuf中的内容
-	// 4. if函数  如果没有'\n'结束符，进行最后的if操作，然后   再  通过exec执行argsbuf中的内容
+
+	char buf[2048]; // 读入时使用的内存池
+	char *p = buf, *last_p = buf; // 当前参数的结束、开始指针
+	char *argsbuf[128]; // 全部参数列表，字符串指针数组，包含 argv 传进来的参数和 stdin 读入的参数
+	char **args = argsbuf; // 指向 argsbuf 中第一个从 stdin 读入的参数
+	for(int i=1;i<argc;i++) {
   6e:	4785                	li	a5,1
   70:	04a7d363          	bge	a5,a0,b6 <main+0x7a>
   74:	00858713          	addi	a4,a1,8
@@ -78,81 +79,81 @@ int main(int argc, char *argv[]){
   8e:	0905                	addi	s2,s2,1
   90:	090e                	slli	s2,s2,0x3
   92:	993e                	add	s2,s2,a5
-
-	char buf[2048]; // 读入时使用的内存池
-  94:	6314                	ld	a3,0(a4)
-  96:	e394                	sd	a3,0(a5)
-	char *p = buf, *last_p = buf; // 当前参数的结束、开始指针
-  98:	07a1                	addi	a5,a5,8
-	// 4. if函数  如果没有'\n'结束符，进行最后的if操作，然后   再  通过exec执行argsbuf中的内容
-  9a:	0721                	addi	a4,a4,8
-  9c:	ff279ce3          	bne	a5,s2,94 <main+0x58>
-	for(int i=1;i<argc;i++) {
 		// 将 argv 提供的参数加入到最终的参数列表中
 		*args = argv[i];
+  94:	6314                	ld	a3,0(a4)
+  96:	e394                	sd	a3,0(a5)
 		args++;
-	}
-	char **pa = args; // 开始读入参数
+  98:	07a1                	addi	a5,a5,8
+	for(int i=1;i<argc;i++) {
+  9a:	0721                	addi	a4,a4,8
+  9c:	ff279ce3          	bne	a5,s2,94 <main+0x58>
+	while(read(0, p, 1) != 0) {
+		if(*p == ' ' || *p == '\n') {
+			// 读入一个参数完成（以空格分隔，如 `echo hello world`，则 hello 和 world 各为一个参数）
+			*p = '\0';	// 将空格替换为 \0 分割开各个参数，这样可以直接使用内存池中的字符串作为参数字符串
+						// 而不用额外开辟空间
+			*(pa++) = last_p;
   a0:	89ca                	mv	s3,s2
-	// 1. for循环  将argv中参数读出 -----保存至----->  argsbuf
+	char *p = buf, *last_p = buf; // 当前参数的结束、开始指针
   a2:	77fd                	lui	a5,0xfffff
   a4:	7b078793          	addi	a5,a5,1968 # fffffffffffff7b0 <__global_pointer$+0xffffffffffffe6cf>
   a8:	00f40ab3          	add	s5,s0,a5
   ac:	84d6                	mv	s1,s5
-		// 将 argv 提供的参数加入到最终的参数列表中
+		if(*p == ' ' || *p == '\n') {
   ae:	02000b13          	li	s6,32
   b2:	4ba9                	li	s7,10
   b4:	a005                	j	d4 <main+0x98>
-	// 3. 遇到'\n'结束符，通过exec执行argsbuf中的内容
+	char **args = argsbuf; // 指向 argsbuf 中第一个从 stdin 读入的参数
   b6:	797d                	lui	s2,0xfffff
   b8:	40090913          	addi	s2,s2,1024 # fffffffffffff400 <__global_pointer$+0xffffffffffffe31f>
   bc:	fb040793          	addi	a5,s0,-80
   c0:	993e                	add	s2,s2,a5
   c2:	bff9                	j	a0 <main+0x64>
-		args++;
+			*p = '\0';	// 将空格替换为 \0 分割开各个参数，这样可以直接使用内存池中的字符串作为参数字符串
   c4:	00048023          	sb	zero,0(s1)
-	char **pa = args; // 开始读入参数
-  c8:	0159b023          	sd	s5,0(s3)
-	while(read(0, p, 1) != 0) {
-  cc:	00148a93          	addi	s5,s1,1
-	char **pa = args; // 开始读入参数
-  d0:	09a1                	addi	s3,s3,8
-						// 而不用额外开辟空间
 			*(pa++) = last_p;
+  c8:	0159b023          	sd	s5,0(s3)
 			last_p = p+1;
-
-			if(*p == '\n') {
-				// 读入一行完成
+  cc:	00148a93          	addi	s5,s1,1
+			*(pa++) = last_p;
+  d0:	09a1                	addi	s3,s3,8
+				*pa = 0; // 参数列表末尾用 null 标识列表结束
+				run(argv[1], argsbuf); // 执行最后一行指令
+				pa = args; // 重置读入参数指针，准备读入下一行
+			}
+		}
+		p++;
   d2:	0485                	addi	s1,s1,1
-	for(int i=1;i<argc;i++) {
+	while(read(0, p, 1) != 0) {
   d4:	4605                	li	a2,1
   d6:	85a6                	mv	a1,s1
   d8:	4501                	li	a0,0
   da:	00000097          	auipc	ra,0x0
   de:	2e8080e7          	jalr	744(ra) # 3c2 <read>
   e2:	c901                	beqz	a0,f2 <main+0xb6>
-		// 将 argv 提供的参数加入到最终的参数列表中
+		if(*p == ' ' || *p == '\n') {
   e4:	0004c783          	lbu	a5,0(s1)
   e8:	fd678ee3          	beq	a5,s6,c4 <main+0x88>
   ec:	ff7793e3          	bne	a5,s7,d2 <main+0x96>
   f0:	bfd1                	j	c4 <main+0x88>
-		}
-		p++;
-	}
-    // 举例 echo hello world | xargs echo bye
-    // 那么上述循环使argsbuf中的元素为: 
-    // argsbuf[0]:"echo"
-  f2:	03298463          	beq	s3,s2,11a <main+0xde>
     // argsbuf[1]:"bye"
     // argsbuf[2]:"hello"
-  f6:	00048023          	sb	zero,0(s1)
     // argsbuf[0]:"world"
-  fa:	0159b023          	sd	s5,0(s3)
     // argsbuf[0]:"null"
 	
-  fe:	0009b423          	sd	zero,8(s3)
     if(pa != args) { // 如果最后一行不是空行（处理标准输入（stdin）不以换行符结尾的情况）
+  f2:	03298463          	beq	s3,s2,11a <main+0xde>
 		// 收尾最后一个参数
+		*p = '\0';
+  f6:	00048023          	sb	zero,0(s1)
+		*(pa++) = last_p;
+  fa:	0159b023          	sd	s5,0(s3)
+		// 收尾最后一行
+		*pa = 0; // 参数列表末尾用 null 标识列表结束
+  fe:	0009b423          	sd	zero,8(s3)
+		// 执行最后一行指令
+		run(argv[1], argsbuf);
  102:	75fd                	lui	a1,0xfffff
  104:	40058593          	addi	a1,a1,1024 # fffffffffffff400 <__global_pointer$+0xffffffffffffe31f>
  108:	fb040793          	addi	a5,s0,-80
@@ -160,14 +161,14 @@ int main(int argc, char *argv[]){
  10e:	008a3503          	ld	a0,8(s4)
  112:	00000097          	auipc	ra,0x0
  116:	eee080e7          	jalr	-274(ra) # 0 <run>
-		*p = '\0';
-		*(pa++) = last_p;
+	}
+	while(wait(0) != -1) {}; // 循环等待所有子进程完成，每一次 wait(0) 等待一个
  11a:	54fd                	li	s1,-1
  11c:	4501                	li	a0,0
  11e:	00000097          	auipc	ra,0x0
  122:	294080e7          	jalr	660(ra) # 3b2 <wait>
  126:	fe951be3          	bne	a0,s1,11c <main+0xe0>
-		// 收尾最后一行
+	exit(0);
  12a:	4501                	li	a0,0
  12c:	00000097          	auipc	ra,0x0
  130:	27e080e7          	jalr	638(ra) # 3aa <exit>
