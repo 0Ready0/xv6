@@ -697,3 +697,16 @@ procdump(void)
     printf("\n");
   }
 }
+
+uint64 count_process(void){
+  // 函数描述  -> 记录当前运行的进程数
+
+  uint64 cnt = 0;
+  for(struct proc *p = proc;  p < &proc[NPROC]; p++){
+    // 这里不需要对进程proc进行加锁，因为我们只需要读取进程列表，不需要写
+    if(p->state != UNUSED){ // 不是 UNUSED 的进程为，就是已经分配的
+      cnt++;  
+    }
+  }
+  return cnt;
+}

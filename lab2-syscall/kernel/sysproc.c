@@ -6,6 +6,7 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "sysinfo.h"
 
 uint64
 sys_exit(void)
@@ -107,4 +108,26 @@ sys_trace(void)
   struct proc *p = myproc();
   p->trace_mask = mask;
   return 0;
+}
+
+uint64 
+sys_sysinfo(void){
+  
+  // 从用户态读入一个指针作为存放sysinfo结构的缓冲区
+  uint64 addr;
+  if(argaddr(0, &addr) < 0){
+    return -1;
+  }
+
+  struct sysinfo sinfo;
+  sinfo.freemem = count_free_mem();
+  sinfo.nproc = count_process();
+
+  // 使用copyout，结合当前进程的页表，获得进程传进来的指针（逻辑指针）对应的物理地址
+  // 然后将 &sinfo 中的数据复制到该指针所知位置，供用户进程使用
+  if(copyout(myproc()->pagetable, addr, (char*)&sinfo, sizeof(sinfo)) < 0){
+    return -1;
+  }
+  return 0;
+  
 }
