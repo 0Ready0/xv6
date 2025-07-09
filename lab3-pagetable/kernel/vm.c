@@ -224,7 +224,7 @@ uvminit(pagetable_t pagetable, uchar *src, uint sz)
   // - 为用户进程设置初始执行环境
   // - 将内核内置的启动代码 (initcode) 映射到用户虚拟地址 0
   // - 使新创建的进程能从地址 0 开始执行，最终通过 exec 系统调用加载真正的用户程序
-  
+
   char *mem;
 
   if(sz >= PGSIZE)
@@ -283,22 +283,25 @@ uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 
 // Recursively free page-table pages.
 // All leaf mappings must already have been removed.
-void
-freewalk(pagetable_t pagetable)
+void freewalk(pagetable_t pagetable)
 {
   // there are 2^9 = 512 PTEs in a page table.
-  for(int i = 0; i < 512; i++){
+  for (int i = 0; i < 512; i++)
+  {
     pte_t pte = pagetable[i];
-    if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
+    if ((pte & PTE_V) && (pte & (PTE_R | PTE_W | PTE_X)) == 0)
+    {
       // this PTE points to a lower-level page table.
       uint64 child = PTE2PA(pte);
       freewalk((pagetable_t)child);
       pagetable[i] = 0;
-    } else if(pte & PTE_V){
+    }
+    else if (pte & PTE_V)
+    {
       panic("freewalk: leaf");
     }
   }
-  kfree((void*)pagetable);
+  kfree((void *)pagetable);
 }
 
 // Free user memory pages,
@@ -453,5 +456,28 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return 0;
   } else {
     return -1;
+  }
+}
+
+static char *printpoint{"..", ".. ..", ".. .. .."};
+
+void vmprint(pagetable_t pagetable, uint depth){
+  if(depth > 2) return;
+  if(depth == 0){
+    printf("page table %p", pagetable);
+  }
+  char* buf = printpoint;
+  
+  for (int i = 0; i < 512; i++)
+  {
+    pte_t pte = pagetable[i];
+    if (pte & PTE_V)
+    {
+      
+      uint64 child = PTE2PA(pte);
+      vmprint((pagetable_t)child, depth + 1);
+
+    }
+
   }
 }
