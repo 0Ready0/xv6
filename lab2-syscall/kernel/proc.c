@@ -158,6 +158,9 @@ freeproc(struct proc *p)
 pagetable_t
 proc_pagetable(struct proc *p)
 {
+  // 函数描述
+  // 为一个进程创建初始的用户页表（page table）。
+  // 该页表不包含常规用户内存，但映射了三个关键的内核页面：TRAMPOLINE（蹦床）、TRAPFRAME（陷阱帧）和USYSCALL（用户系统调用）
   pagetable_t pagetable;
 
   // An empty page table.
@@ -169,6 +172,8 @@ proc_pagetable(struct proc *p)
   // at the highest user virtual address.
   // only the supervisor uses it, on the way
   // to/from user space, so not PTE_U.
+  // 映射蹦床页面
+  // 目的：用于处理用户态与内核态之间的切换
   if(mappages(pagetable, TRAMPOLINE, PGSIZE,
               (uint64)trampoline, PTE_R | PTE_X) < 0){
     uvmfree(pagetable, 0);
@@ -176,10 +181,12 @@ proc_pagetable(struct proc *p)
   }
 
   // map the trapframe just below TRAMPOLINE, for trampoline.S.
+  // 映射陷阱帧
+  // 目的：用于保存用户进程的寄存器状态
   if(mappages(pagetable, TRAPFRAME, PGSIZE,
               (uint64)(p->trapframe), PTE_R | PTE_W) < 0){
-    uvmunmap(pagetable, TRAMPOLINE, 1, 0);
-    uvmfree(pagetable, 0);
+    uvmunmap(pagetable, TRAMPOLINE, 1, 0);  // 映射失败，则会解除成功映射的页面，再释放整个页表
+    uvmfree(pagetable, 0);  // 释放页面占用的物理内存
     return 0;
   }
 

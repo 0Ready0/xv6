@@ -33,6 +33,8 @@ kinit()
 void
 freerange(void *pa_start, void *pa_end)
 {
+  // 函数描述
+  // 将一段连续的物理内存区域划分成多个内存页，并将这些页添加到系统的空闲内存链表中，使它们可用于后续分配
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
   for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
@@ -46,6 +48,8 @@ freerange(void *pa_start, void *pa_end)
 void
 kfree(void *pa)
 {
+  // 函数描述
+  // 安全填充暴露错误，头插法链表实现高效回收
   struct run *r;
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
