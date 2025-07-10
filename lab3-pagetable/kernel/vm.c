@@ -21,26 +21,26 @@ extern char trampoline[]; // trampoline.S
 void kvm_map_pagetable(pagetable_t pgtbl) {
   // 将各种内核需要的 direct mapping 添加到页表 pgtbl 中。
   
-  // uart registers
+  // uart registers - 串口
   kvmmap(pgtbl, UART0, UART0, PGSIZE, PTE_R | PTE_W);
 
-  // virtio mmio disk interface
+  // virtio mmio disk interface - 虚拟磁盘设备
   kvmmap(pgtbl, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
 
-  // CLINT
+  // CLINT  - Core-Local Interruptor 每个 RISC-V 核心私有的中断控制器。
   kvmmap(pgtbl, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
 
-  // PLIC
+  // PLIC -  Platform-Level Interrupt Controller 管理整个系统的外部中断。
   kvmmap(pgtbl, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
 
-  // map kernel text executable and read-only.
+  // map kernel text executable and read-only. - 映射内核代码段
   kvmmap(pgtbl, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
 
-  // map kernel data and the physical RAM we'll make use of.
+  // map kernel data and the physical RAM we'll make use of. - 映射内核数据段 + BSS + heap
   kvmmap(pgtbl, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
 
   // map the trampoline for trap entry/exit to
-  // the highest virtual address in the kernel.
+  // the highest virtual address in the kernel. -  用户/内核模式切换桥
   kvmmap(pgtbl, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 }
 
@@ -405,6 +405,8 @@ uvmclear(pagetable_t pagetable, uint64 va)
 int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
+  // 函数描述
+  // 从内核空间的 src 拷贝 len 个字节的数据到用户进程的虚拟地址 dstva中。通过页表 pagetable 解析用户空间地址。
   uint64 n, va0, pa0;
 
   while(len > 0){
@@ -430,6 +432,8 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
+  // 函数描述
+  // 从用户空间虚拟地址 srcva 拷贝 len 字节到内核空间的 dst 地址中。
   uint64 n, va0, pa0;
 
   while(len > 0){
