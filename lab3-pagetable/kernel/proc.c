@@ -240,6 +240,7 @@ userinit(void)
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
+  kvmcopymappings(p->pagetable, p->kernelpgtbl, 0, p->sz);  // 同步程序内存映射到进程内核页表中
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
@@ -263,11 +264,20 @@ growproc(int n)
 
   sz = p->sz;
   if(n > 0){
-    if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
+    uint64 newsz;
+    if((newsz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+    // 内核页表中的映射同步扩大
+    if(kvmcopymappings(p->pagetable, p->kernelpgtbl, sz, n) != 0){
+      uvmdealloc(p->pagetable, newsz, sz);
+      return -1;
+    }
+    sz = newsz;
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
+    // 内核页表中的映射同步缩小
+    sz = kvmdealloc(p->kernelpgtbl, sz, sz + n);
   }
   p->sz = sz;
   return 0;
@@ -278,6 +288,14 @@ growproc(int n)
 int
 fork(void)
 {
+  // 函数描述
+  // fork() 创建当前进程的完整副本(包括地址空间、文件描述符、寄存器等)，返回子进程的PID，子进程里返回值为0
+  // 分配空闲进程结构体（allocproc） ➜ 初始化 trapframe、内核栈 ➜
+  // 从父进程拷贝用户内存页（uvmcopy） ➜ 拷贝用户态寄存器状态（trapframe） ➜
+  // 将 a0 设为 0（子进程返回值） ➜ 复制文件描述符（filedup） ➜ 拷贝 cwd ➜
+  // 设置父子关系 ➜ 拷贝进程名 ➜ 设置子进程状态为 RUNNABLE ➜
+  // 释放锁 ➜ 返回子进程 pid（父进程看到） ➜ 子进程开始调度运行时，从 fork() 返回 0
+
   int i, pid;
   struct proc *np;
   struct proc *p = myproc();
@@ -287,8 +305,9 @@ fork(void)
     return -1;
   }
 
-  // Copy user memory from parent to child.
-  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+  // Copy user memory from parent to child. （调用 kvmcopymappings，将新进程用户页表映射拷贝一份到新进程内核页表中）
+  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0 ||
+      kvmcopymappings(np->pagetable, np->kernelpgtbl, 0, p->sz) < 0){
     freeproc(np);
     release(&np->lock);
     return -1;

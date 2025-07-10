@@ -13,6 +13,24 @@ void vmprint(pagetable_t pagetable, uint depth);
 int
 exec(char *path, char **argv)
 {
+  // 函数描述
+  // 用户程序加载器 - 把当前进程的地址空间清空，然后加载一个新的 ELF 可执行文件，初始化堆栈，跳到新的入口执行。
+
+  // 打开 ELF 文件 ➜ 检查 magic number ➜ 读取 program header ➜ 遍历每个 segment ➜
+  // 判断是否是可加载段 ➜ 分配内存页（uvmalloc） ➜ 加载文件内容到内存（loadseg） ➜
+  // 完成所有段加载 ➜ 释放 inode ➜
+  //         ↓
+  // 创建新页表（proc_pagetable） ➜ 分配用户栈（2页，含栈溢出保护） ➜ 栈指针向下移动 ➜
+  // 逐个拷贝参数字符串 ➜ 记录参数地址 ➜ 构造 argv 指针数组 ➜ 拷贝 argv[] 到栈上 ➜
+  //         ↓
+  // 设置 trapframe ➜ 指定程序入口（epc） ➜ 设置用户栈顶指针（sp） ➜ 设置 argv 地址（a1） ➜
+  //         ↓
+  // 保存程序名（调试用） ➜ 切换到新页表 ➜ 更新进程大小 sz ➜ 释放旧页表内存 ➜
+  //         ↓
+  // （可选）打印页表信息（pid == 1） ➜ 返回 argc（将进入 a0） ➜ 从内核态返回 ➜
+  //         ↓
+  // 执行 `sret` ➜ 跳转到新程序入口 ➜ 运行用户态程序开始执行
+
   char *s, *last;
   int i, off;
   uint64 argc, sz = 0, sp, ustack[MAXARG+1], stackbase;
@@ -24,24 +42,24 @@ exec(char *path, char **argv)
 
   begin_op();
 
-  if((ip = namei(path)) == 0){
+  if((ip = namei(path)) == 0){    // 根据路径查找文件
     end_op();
     return -1;
   }
-  ilock(ip);
+  ilock(ip);                      // 加锁
 
   // Check ELF header
-  if(readi(ip, 0, (uint64)&elf, 0, sizeof(elf)) != sizeof(elf))
+  if(readi(ip, 0, (uint64)&elf, 0, sizeof(elf)) != sizeof(elf)) // 读取ELF header
     goto bad;
-  if(elf.magic != ELF_MAGIC)
-    goto bad;
-
-  if((pagetable = proc_pagetable(p)) == 0)
+  if(elf.magic != ELF_MAGIC)    // 检查是否是 ELF 文件
     goto bad;
 
-  // Load program into memory.
+  if((pagetable = proc_pagetable(p)) == 0)    // 为当前进程创建新页表
+    goto bad;
+
+  // Load program into memory.  加载 ELF 程序段（代码段 / 数据段）
   for(i=0, off=elf.phoff; i<elf.phnum; i++, off+=sizeof(ph)){
-    if(readi(ip, 0, (uint64)&ph, off, sizeof(ph)) != sizeof(ph))
+    if(readi(ip, 0, (uint64)&ph, off, sizeof(ph)) != sizeof(ph))   // 读取每个程序段
       goto bad;
     if(ph.type != ELF_PROG_LOAD)
       continue;
@@ -50,12 +68,14 @@ exec(char *path, char **argv)
     if(ph.vaddr + ph.memsz < ph.vaddr)
       goto bad;
     uint64 sz1;
-    if((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz)) == 0)
+    if((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz)) == 0)  // 为该段分配虚拟地址空间
+      goto bad;
+    if(sz1 >= PLIC) // 添加检测，防止程序大小超过 PLIC
       goto bad;
     sz = sz1;
     if(ph.vaddr % PGSIZE != 0)
       goto bad;
-    if(loadseg(pagetable, ph.vaddr, ip, ph.off, ph.filesz) < 0)
+    if(loadseg(pagetable, ph.vaddr, ip, ph.off, ph.filesz) < 0)  // 把文件中的代码/数据拷进内存
       goto bad;
   }
   iunlockput(ip);
@@ -67,16 +87,18 @@ exec(char *path, char **argv)
 
   // Allocate two pages at the next page boundary.
   // Use the second as the user stack.
-  sz = PGROUNDUP(sz);
+  // 分配用户栈
+  sz = PGROUNDUP(sz);   // 向上对齐
   uint64 sz1;
-  if((sz1 = uvmalloc(pagetable, sz, sz + 2*PGSIZE)) == 0)
+  if((sz1 = uvmalloc(pagetable, sz, sz + 2*PGSIZE)) == 0)    // 分配两页作为栈空间
     goto bad;
   sz = sz1;
-  uvmclear(pagetable, sz-2*PGSIZE);
+  uvmclear(pagetable, sz-2*PGSIZE);   // 把底下一页标为非法页（栈溢出检测）
   sp = sz;
   stackbase = sp - PGSIZE;
 
   // Push argument strings, prepare rest of stack in ustack.
+  //  压入参数字符串和 argv 数组
   for(argc = 0; argv[argc]; argc++) {
     if(argc >= MAXARG)
       goto bad;
@@ -108,7 +130,11 @@ exec(char *path, char **argv)
     if(*s == '/')
       last = s+1;
   safestrcpy(p->name, last, sizeof(p->name));
-    
+  
+  // 清除内核页表中对程序内存的旧映射，重建建立新映射
+  uvmunmap(p->kernelpgtbl, 0, PGROUNDUP(oldsz)/PGSIZE, 0);
+  kvmcopymappings(pagetable, p->kernelpgtbl, 0, sz);
+  
   // Commit to the user image.
   oldpagetable = p->pagetable;
   p->pagetable = pagetable;
@@ -119,7 +145,6 @@ exec(char *path, char **argv)
 
   if(p->pid == 1)   // 打印页表信息
     vmprint(p->pagetable, 0);
-
 
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
