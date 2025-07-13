@@ -132,3 +132,15 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+
+void backtrace(void){
+  uint64 fp = r_fp();
+  printf("fp: %p\n", fp);
+
+  // 循环直到栈底（栈帧起始地址按页对齐）
+  while(fp != PGROUNDUP(fp)){ // 判断是否栈底
+    uint64 ra = *(uint64*)(fp - 8); // 从栈帧中读取返回地址
+    printf("%p\n", ra);
+    fp = *(uint64*)(fp - 16); // 获取上一层栈的帧指针（链表前移）
+  }
+}
