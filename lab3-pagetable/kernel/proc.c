@@ -269,7 +269,7 @@ growproc(int n)
       return -1;
     }
     // 内核页表中的映射同步扩大
-    if(kvmcopymappings(p->pagetable, p->kernelpgtbl, sz, n) != 0){
+    if(kvmcopymappings(p->pagetable, p->kernelpgtbl, sz, n) != 0) {
       uvmdealloc(p->pagetable, newsz, sz);
       return -1;
     }
