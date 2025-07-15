@@ -67,6 +67,11 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if(r_scause() == 13 || r_scause() == 15){  // 判断是否为页表错误
+      uint64 va = r_stval();  // 返回RISCV stval寄存器，该寄存器存储着出错页面的虚拟地址
+      // 判断虚拟内存的上下限是否合法，并为虚拟地址分配物理内存，并映射到用户页表
+      if(va >= p->sz || va < p->trapframe->sp || (uvmalloc(p->pagetable, PGROUNDDOWN(va), PGROUNDDOWN(va) + PGSIZE) == 0))
+        p->killed = 1;
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());

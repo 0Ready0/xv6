@@ -46,9 +46,19 @@ sys_sbrk(void)
 
   if(argint(0, &n) < 0)
     return -1;
-  addr = myproc()->sz;
-  if(growproc(n) < 0)
-    return -1;
+  
+  struct proc *p  = myproc();
+  addr = p->sz;
+  // if(growproc(n) < 0)    // 删除下述内容，把立即分配内存改为仅增加用户大小。
+  //   return -1;
+
+  if(n > 0){
+    (p->sz) += n;   // 仅增大size
+  }
+  else{
+    uint64 sz = p->sz;
+    p->sz = uvmdealloc(p->pagetable, sz, sz + n);
+  }
   return addr;
 }
 
