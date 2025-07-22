@@ -16,7 +16,7 @@ struct entry {
 struct entry *table[NBUCKET];
 int keys[NKEYS];
 int nthread = 1;
-
+pthread_mutex_t locks[NBUCKET];
 double
 now()
 {
@@ -51,7 +51,9 @@ void put(int key, int value)
     e->value = value;
   } else {
     // the new is new.
+    pthread_mutex_lock(&locks[i]); // 加锁
     insert(key, value, &table[i], table[i]);
+    pthread_mutex_unlock(&locks[i]); // 解锁
   }
 }
 
@@ -106,6 +108,10 @@ main(int argc, char *argv[])
   if (argc < 2) {
     fprintf(stderr, "Usage: %s nthreads\n", argv[0]);
     exit(-1);
+  }
+  // 初始化所有锁
+  for(int i = 0; i < NBUCKET; i++) {
+      pthread_mutex_init(&locks[i], NULL);
   }
   nthread = atoi(argv[1]);
   tha = malloc(sizeof(pthread_t) * nthread);
