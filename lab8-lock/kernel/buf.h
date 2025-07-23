@@ -7,7 +7,7 @@ struct buf {
   uint refcnt;             // 引用计数（当前使用者数量）
   struct buf *prev;        // LRU 链表前驱指针
   struct buf *next;        // LRU 链表后继指针
-  uchar data[BSIZE];       // 实际缓存数据（BSIZE=512字节）
+  uchar data[BSIZE];       // 实际缓存数据（BSIZE=1024字节）
   uint timestamp;          // 时间戳
 };
 
