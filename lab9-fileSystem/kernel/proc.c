@@ -344,7 +344,7 @@ exit(int status)
   if(p == initproc)
     panic("init exiting");
 
-  // Close all open files.
+  // 关闭所有打开的文件
   for(int fd = 0; fd < NOFILE; fd++){
     if(p->ofile[fd]){
       struct file *f = p->ofile[fd];
@@ -354,6 +354,7 @@ exit(int status)
   }
 
   begin_op();
+  // 释放当前工作目录
   iput(p->cwd);
   end_op();
   p->cwd = 0;
@@ -364,6 +365,7 @@ exit(int status)
   // necessary or not. init may miss this wakeup, but that seems
   // harmless.
   acquire(&initproc->lock);
+  // 唤醒init进程（可能收养子进程）
   wakeup1(initproc);
   release(&initproc->lock);
 
@@ -384,13 +386,13 @@ exit(int status)
   acquire(&p->lock);
 
   // Give any children to init.
-  reparent(p);
+  reparent(p);    // 将所有进程托管给init进程
 
   // Parent might be sleeping in wait().
-  wakeup1(original_parent);
+  wakeup1(original_parent);   // 唤醒父进程（可能在wait中阻塞）
 
-  p->xstate = status;
-  p->state = ZOMBIE;
+  p->xstate = status;   // 保存退出状态
+  p->state = ZOMBIE;    // 进入僵尸进程
 
   release(&original_parent->lock);
 
@@ -410,11 +412,13 @@ wait(uint64 addr)
 
   // hold p->lock for the whole time to avoid lost
   // wakeups from a child's exit().
+  // 对当前进程进行加锁
   acquire(&p->lock);
 
   for(;;){
     // Scan through table looking for exited children.
     havekids = 0;
+    // 扫描所有进程
     for(np = proc; np < &proc[NPROC]; np++){
       // this code uses np->parent without holding np->lock.
       // acquiring the lock first would cause a deadlock,
@@ -424,9 +428,11 @@ wait(uint64 addr)
         // because only the parent changes it, and we're the parent.
         acquire(&np->lock);
         havekids = 1;
+        // 发现自己子进程中的僵尸进程
         if(np->state == ZOMBIE){
           // Found one.
           pid = np->pid;
+          // 将退出状态拷贝到用户空间
           if(addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate,
                                   sizeof(np->xstate)) < 0) {
             release(&np->lock);
