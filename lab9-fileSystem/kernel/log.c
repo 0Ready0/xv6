@@ -68,15 +68,24 @@ initlog(int dev, struct superblock *sb)
 static void
 install_trans(int recovering)
 {
+  // 函数描述
+  // 日志区中的数据真正写入原始磁盘位置（也叫“安装事务”）
   int tail;
 
+  // 遍历日志头中记录的每一个块（每一项代表一次修改）
   for (tail = 0; tail < log.lh.n; tail++) {
-    struct buf *lbuf = bread(log.dev, log.start+tail+1); // read log block
-    struct buf *dbuf = bread(log.dev, log.lh.block[tail]); // read dst
+    // 读取日志块（log区中保存的已修改数据），位于 log.start+1 之后的区域
+    struct buf *lbuf = bread(log.dev, log.start+tail+1); // 读取日志数据块
+    // 读取目标块（文件系统中原本被修改的块）
+    struct buf *dbuf = bread(log.dev, log.lh.block[tail]); // 读取真实目标块
+    // 将日志块中的内容拷贝到目标块缓冲区
     memmove(dbuf->data, lbuf->data, BSIZE);  // copy block to dst
+    // 把目标块写回磁盘
     bwrite(dbuf);  // write dst to disk
+    // 如果不是在崩溃恢复模式，则解除 buffer pin（允许回收该块）
     if(recovering == 0)
       bunpin(dbuf);
+    // 释放两个缓冲区的引用
     brelse(lbuf);
     brelse(dbuf);
   }
@@ -102,10 +111,18 @@ read_head(void)
 static void
 write_head(void)
 {
+  // 函数描述
+  // 将内存中的日志头（log header）写入磁盘上的日志头块，
+
+  // 读取磁盘上日志头所在的块（log.start 是日志头块号）
   struct buf *buf = bread(log.dev, log.start);
+  // 将读取到的缓冲区数据强制转换为日志头结构指针
   struct logheader *hb = (struct logheader *) (buf->data);
   int i;
-  hb->n = log.lh.n;
+
+  // 将内存中的日志头内容写入缓冲区（准备写入磁盘）
+  hb->n = log.lh.n;  // 设置日志头中已记录的块数
+  // 拷贝每个被修改的块号到日志头中
   for (i = 0; i < log.lh.n; i++) {
     hb->block[i] = log.lh.block[i];
   }
@@ -194,12 +211,17 @@ static void
 write_log(void)
 {
   int tail;
-
+  // 遍历日志头中记录的每一个被修改的块
   for (tail = 0; tail < log.lh.n; tail++) {
+    // to 是日志区中的目标块：写入 log.start + tail + 1 位置的磁盘块
     struct buf *to = bread(log.dev, log.start+tail+1); // log block
+    // from 是缓存中被修改的原始块(脏块)：来自原始 block 位置
     struct buf *from = bread(log.dev, log.lh.block[tail]); // cache block
+    // 将脏块的数据复制到日志块中
     memmove(to->data, from->data, BSIZE);
+    // 将日志块写入磁盘（写入的是日志区域）
     bwrite(to);  // write the log
+    // 释放缓存引用
     brelse(from);
     brelse(to);
   }
@@ -209,11 +231,11 @@ static void
 commit()
 {
   if (log.lh.n > 0) {
-    write_log();     // Write modified blocks from cache to log
-    write_head();    // Write header to disk -- the real commit
-    install_trans(0); // Now install writes to home locations
+    write_log();     // Write modified blocks from cache to log, 将所有修改过的缓存块写入“日志区”
+    write_head();    // Write header to disk -- the real commit, 写入日志头（块号列表），这是原子提交点
+    install_trans(0); // Now install writes to home locations, 将日志区的块复制到实际的文件系统位置
     log.lh.n = 0;
-    write_head();    // Erase the transaction from the log
+    write_head();    // Erase the transaction from the log, 清除旧事务，释放日志空间
   }
 }
 
