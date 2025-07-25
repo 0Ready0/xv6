@@ -122,55 +122,70 @@ recover_from_log(void)
   write_head(); // clear the log
 }
 
-// called at the start of each FS system call.
+// begin_op() 和 end_op()的作用
+// 对一组磁盘操作提供原子性支持，即“要么全部完成，要么全部不做”，以防止系统崩溃后留下“半写入”的数据。
+
+// 开始一次文件系统操作前必须调用此函数
+// 确保日志有足够空间、安全启动操作
 void
 begin_op(void)
 {
+  // 加锁，保证对日志系统的互斥访问
   acquire(&log.lock);
   while(1){
+    // 如果日志系统正在提交(commit)中，则等待提交完成
     if(log.committing){
-      sleep(&log, &log.lock);
+      sleep(&log, &log.lock); // 释放锁并睡眠，等待唤醒
+    // 如果当前日志空间不足以容纳新的操作，则等待
     } else if(log.lh.n + (log.outstanding+1)*MAXOPBLOCKS > LOGSIZE){
+      // 计算：当前日志中已使用块数 + 本次操作所需的最大块数 > 总日志大小
       // this op might exhaust log space; wait for commit.
-      sleep(&log, &log.lock);
+      sleep(&log, &log.lock); // 等待其他操作释放空间
     } else {
+      // 日志空间足够，记录一个正在进行的操作
       log.outstanding += 1;
-      release(&log.lock);
+      release(&log.lock); // 解锁，允许其他线程访问日志系统
       break;
     }
   }
 }
 
-// called at the end of each FS system call.
-// commits if this was the last outstanding operation.
+// 每个文件系统调用结束时必须调用该函数
+// 如果这是最后一个正在进行的操作，则执行提交
 void
 end_op(void)
 {
-  int do_commit = 0;
+  int do_commit = 0;          // 标志位：是否需要执行提交
 
-  acquire(&log.lock);
-  log.outstanding -= 1;
+  acquire(&log.lock);         // 加锁访问日志状态
+  log.outstanding -= 1;       // 当前操作结束，减少未完成操作数
+
+  // 检查是否有并发的提交，正常情况下不应该出现
   if(log.committing)
     panic("log.committing");
+
+  // 如果没有其他未完成的操作了，准备提交
   if(log.outstanding == 0){
-    do_commit = 1;
-    log.committing = 1;
+    do_commit = 1;          // 标记需要提交
+    log.committing = 1;     // 设置提交状态，防止其他操作插入
   } else {
     // begin_op() may be waiting for log space,
     // and decrementing log.outstanding has decreased
     // the amount of reserved space.
-    wakeup(&log);
+    // 如果还有其他操作进行中，可能有操作正在等待空间
+    wakeup(&log);    // 唤醒等待 begin_op 中睡眠的线程
   }
   release(&log.lock);
 
   if(do_commit){
     // call commit w/o holding locks, since not allowed
     // to sleep with locks.
+    // 提交操作不能在持锁状态下执行（commit中可能会sleep）
     commit();
-    acquire(&log.lock);
-    log.committing = 0;
-    wakeup(&log);
-    release(&log.lock);
+    acquire(&log.lock);      // 提交完成后重新加锁
+    log.committing = 0;      // 清除提交标记
+    wakeup(&log);            // 唤醒可能在等待提交完成的线程
+    release(&log.lock);      // 释放锁
   }
 }
 
@@ -214,22 +229,31 @@ commit()
 void
 log_write(struct buf *b)
 {
+  // 函数描述
+  // 在事务（transaction）期间记录缓冲区块的修改。它不会立刻把块写入磁盘，而是把块号记录在日志（log）中。
+  // 之后由 commit() 把所有记录的块一次性写入磁盘，保证原子性和持久性。
   int i;
 
+  // 如果日志条目已满，说明一次事务写入的数据太多，直接崩溃报错
   if (log.lh.n >= LOGSIZE || log.lh.n >= log.size - 1)
     panic("too big a transaction");
+  // 如果没有处于事务之中（即没有调用 begin_op），这是不允许的
   if (log.outstanding < 1)
     panic("log_write outside of trans");
 
+  // 加锁，保护 log.lh 的并发访问
   acquire(&log.lock);
+
+  // 检查该块是否已经在日志中记录过（log absorption：避免重复写入）
   for (i = 0; i < log.lh.n; i++) {
     if (log.lh.block[i] == b->blockno)   // log absorbtion
       break;
   }
+  // 将块号加入日志头（log header）的 block 数组中
   log.lh.block[i] = b->blockno;
   if (i == log.lh.n) {  // Add new block to log?
-    bpin(b);
-    log.lh.n++;
+    bpin(b);        // 标记该缓冲区在提交前不能被释放或写回
+    log.lh.n++;     // 增加日志记录数
   }
   release(&log.lock);
 }
