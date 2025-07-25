@@ -21,11 +21,11 @@ struct inode {
   struct sleeplock lock; // protects everything below here
   int valid;          // inode has been read from disk?
 
-  short type;         // copy of disk inode
+  short type;         // copy of disk inode, 表名当前inode是文件还是目录
   short major;
   short minor;
-  short nlink;
-  uint size;
+  short nlink;        // link计数器，记录有多少个文件名指向了当前的inode
+  uint size;          // 表明了文件数据有多少字节
   uint addrs[NDIRECT+1];
 };
 

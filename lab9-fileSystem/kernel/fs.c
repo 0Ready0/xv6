@@ -195,18 +195,29 @@ static struct inode* iget(uint dev, uint inum);
 struct inode*
 ialloc(uint dev, short type)
 {
-  int inum;
-  struct buf *bp;
+  // 函数描述
+  // 分配一个新的inode
+  int inum;             // 遍历的inode号
+  struct buf *bp;       // 磁盘缓冲区
   struct dinode *dip;
 
+  // 遍历所有可能的inode号（从1开始，跳过0号保留inode）
   for(inum = 1; inum < sb.ninodes; inum++){
+    // 读取包含该inode的磁盘块
     bp = bread(dev, IBLOCK(inum, sb));
+    // 获取该inode在块内的位置（IPB=每块inode数）
     dip = (struct dinode*)bp->data + inum%IPB;
+    // 检查inode是否空闲（type=0表示空闲）
     if(dip->type == 0){  // a free inode
+      // 初始化inode：清零内存区域
       memset(dip, 0, sizeof(*dip));
+      // 设置inode类型（文件/目录/设备）
       dip->type = type;
+      // 将修改写入磁盘日志（事务操作）
       log_write(bp);   // mark it allocated on the disk
+      // 释放缓冲区（log_write后仍可访问）
       brelse(bp);
+      // 返回内存inode结构（iget会递增引用计数）
       return iget(dev, inum);
     }
     brelse(bp);
@@ -224,15 +235,24 @@ iupdate(struct inode *ip)
   struct buf *bp;
   struct dinode *dip;
 
+  // 读取磁盘中与当前inode对应的块（IBLOCK是一个宏，用来计算inode在磁盘上的块位置）
   bp = bread(ip->dev, IBLOCK(ip->inum, sb));
-  dip = (struct dinode*)bp->data + ip->inum%IPB;
-  dip->type = ip->type;
-  dip->major = ip->major;
-  dip->minor = ip->minor;
-  dip->nlink = ip->nlink;
-  dip->size = ip->size;
-  memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));
+  
+  // 将读取到的缓冲区数据转换为inode结构体指针
+  dip = (struct dinode*)bp->data + ip->inum % IPB;
+
+  // 将inode的信息更新到磁盘上的相应位置
+  dip->type = ip->type;       // 更新inode的类型
+  dip->major = ip->major;     // 更新设备的主设备号
+  dip->minor = ip->minor;     // 更新设备的次设备号
+  dip->nlink = ip->nlink;     // 更新链接计数
+  dip->size = ip->size;       // 更新文件大小
+  memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));  // 更新inode的地址数组（数据块地址）
+
+  // 将更新后的数据块写入磁盘
   log_write(bp);
+
+  // 释放之前读取的缓冲区
   brelse(bp);
 }
 
@@ -242,32 +262,38 @@ iupdate(struct inode *ip)
 static struct inode*
 iget(uint dev, uint inum)
 {
+  // 函数描述
+  // 从inode缓存中获取指定的inode。如果指定的inode已经存在并且没有被回收，那么它将返回该inode并增加引用计数。
+  // 如果指定的inode不存在，函数会寻找一个空闲的inode缓存槽并将其重用，初始化为新的inode。若没有空闲槽，则会发生panic。
   struct inode *ip, *empty;
-
+  // 获取inode缓存的锁
   acquire(&icache.lock);
 
-  // Is the inode already cached?
-  empty = 0;
+  // 先检查这个inode是否已经在缓存中
+  empty = 0;     // 初始化一个指针，用来记录空闲的inode缓存位置
   for(ip = &icache.inode[0]; ip < &icache.inode[NINODE]; ip++){
+    // 检查缓存中是否已经存在该inode
     if(ip->ref > 0 && ip->dev == dev && ip->inum == inum){
+      // 如果该inode存在，且引用计数大于0，增加该inode的引用计数
       ip->ref++;
       release(&icache.lock);
       return ip;
     }
+    // 如果找到了一个空闲的缓存槽，记录下来
     if(empty == 0 && ip->ref == 0)    // Remember empty slot.
       empty = ip;
   }
 
-  // Recycle an inode cache entry.
+  // 如果没有找到空闲的inode缓存槽，抛出异常
   if(empty == 0)
     panic("iget: no inodes");
 
   ip = empty;
-  ip->dev = dev;
-  ip->inum = inum;
-  ip->ref = 1;
-  ip->valid = 0;
-  release(&icache.lock);
+  ip->dev = dev;          // 设置设备号
+  ip->inum = inum;        // 设置inode编号
+  ip->ref = 1;            // 设置引用计数为1
+  ip->valid = 0;          // 设置inode为无效状态（可能需要重新加载磁盘上的数据）
+  release(&icache.lock);  // 释放inode缓存的锁
 
   return ip;
 }

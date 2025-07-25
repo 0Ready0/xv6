@@ -243,30 +243,36 @@ create(char *path, short type, short major, short minor)
 {
   struct inode *ip, *dp;
   char name[DIRSIZ];
-
+  
+  // 路径解析
   if((dp = nameiparent(path, name)) == 0)
     return 0;
 
-  ilock(dp);
+  ilock(dp);  // 锁定父目录
 
+  // 检查文件是否已经存在
   if((ip = dirlookup(dp, name, 0)) != 0){
     iunlockput(dp);
     ilock(ip);
+    // 若需要创建的普通文件已经存在直接返回
     if(type == T_FILE && (ip->type == T_FILE || ip->type == T_DEVICE))
       return ip;
     iunlockput(ip);
     return 0;
   }
 
+  // 分配新的inode
   if((ip = ialloc(dp->dev, type)) == 0)
     panic("create: ialloc");
 
+  // 初始化inode
   ilock(ip);
   ip->major = major;
   ip->minor = minor;
   ip->nlink = 1;
   iupdate(ip);
 
+  // 目录特殊处理
   if(type == T_DIR){  // Create . and .. entries.
     dp->nlink++;  // for ".."
     iupdate(dp);
@@ -275,6 +281,7 @@ create(char *path, short type, short major, short minor)
       panic("create dots");
   }
 
+  // 链接到父目录
   if(dirlink(dp, name, ip->inum) < 0)
     panic("create: dirlink");
 
@@ -291,12 +298,15 @@ sys_open(void)
   struct file *f;
   struct inode *ip;
   int n;
-
+  // argstr 从用户态回去第0个参数（文件路径），存入path中，最大长度为MAXPATH
+  // argint 获取第一个参数
   if((n = argstr(0, path, MAXPATH)) < 0 || argint(1, &omode) < 0)
     return -1;
 
+  // 开始文件系统事务（确保原子性，常用于日志文件系统）。
   begin_op();
 
+  // 文件创建或路径查找
   if(omode & O_CREATE){
     ip = create(path, T_FILE, 0, 0);
     if(ip == 0){
@@ -308,7 +318,8 @@ sys_open(void)
       end_op();
       return -1;
     }
-    ilock(ip);
+    ilock(ip);  // 锁定inode
+    // 目录权限检查
     if(ip->type == T_DIR && omode != O_RDONLY){
       iunlockput(ip);
       end_op();
@@ -316,12 +327,14 @@ sys_open(void)
     }
   }
 
+  // 设备文件校验
   if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
     iunlockput(ip);
     end_op();
     return -1;
   }
 
+  // 分配文件结构和文件描述符
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
     if(f)
       fileclose(f);
@@ -330,10 +343,11 @@ sys_open(void)
     return -1;
   }
 
-  if(ip->type == T_DEVICE){
+  // 初始化文件对象
+  if(ip->type == T_DEVICE){ // 设备文件
     f->type = FD_DEVICE;
     f->major = ip->major;
-  } else {
+  } else {                  // 普通文件/目录
     f->type = FD_INODE;
     f->off = 0;
   }
