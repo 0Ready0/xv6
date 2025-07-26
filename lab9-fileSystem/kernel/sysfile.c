@@ -293,11 +293,11 @@ create(char *path, short type, short major, short minor)
 uint64
 sys_open(void)
 {
-  char path[MAXPATH];
-  int fd, omode;
-  struct file *f;
-  struct inode *ip;
-  int n;
+  char path[MAXPATH];   // 存储文件路径
+  int fd, omode;        // fd: 文件描述符, omode: 打开模式标志
+  struct file *f;       // 内核文件结构指针
+  struct inode *ip;     // 文件对应的inode指针
+  int n;                // 临时返回值
   // argstr 从用户态回去第0个参数（文件路径），存入path中，最大长度为MAXPATH
   // argint 获取第一个参数
   if((n = argstr(0, path, MAXPATH)) < 0 || argint(1, &omode) < 0)

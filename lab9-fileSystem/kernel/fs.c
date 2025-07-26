@@ -64,19 +64,31 @@ bzero(int dev, int bno)
 static uint
 balloc(uint dev)
 {
-  int b, bi, m;
-  struct buf *bp;
+  // 函数描述
+  // 分配空间磁盘块
+
+  int b, bi, m;     // b: 当前位图块索引, bi: 位图块内位索引, m: 位掩码
+  struct buf *bp;   // 缓冲区指针，用于操作位图块
 
   bp = 0;
+  // 遍历所有块组（每个位图块管理 BPB 个磁盘块）
   for(b = 0; b < sb.size; b += BPB){
+    // 读取包含块b的位图块（BBLOCK 计算位图块号）
     bp = bread(dev, BBLOCK(b, sb));
+    // 遍历当前位图块管理的所有位（每个位代表一个磁盘块）
     for(bi = 0; bi < BPB && b + bi < sb.size; bi++){
+      // 计算位掩码：确定字节内特定位的位置
       m = 1 << (bi % 8);
+      // 检查块是否空闲（位值为0表示空闲）
       if((bp->data[bi/8] & m) == 0){  // Is block free?
+        // 标记块为已使用：设置位图中对应位为1
         bp->data[bi/8] |= m;  // Mark block in use.
+        // 将修改写入日志（确保崩溃一致性）
         log_write(bp);
         brelse(bp);
+        // 将新分配的数据块内容清零（防止数据泄露）
         bzero(dev, b + bi);
+        // 返回分配到的块号
         return b + bi;
       }
     }
@@ -403,22 +415,30 @@ iunlockput(struct inode *ip)
 static uint
 bmap(struct inode *ip, uint bn)
 {
-  uint addr, *a;
+  // 函数描述
+  // 根据给定的逻辑块号（bn），返回对应的物理块地址
+  uint addr, *a;    // addr 存储物理块号，a 用于访问缓冲区
   struct buf *bp;
 
+  // 如果逻辑块号 bn 小于 NDIRECT，直接映射到数据块。
   if(bn < NDIRECT){
-    if((addr = ip->addrs[bn]) == 0)
-      ip->addrs[bn] = addr = balloc(ip->dev);
+    if((addr = ip->addrs[bn]) == 0) 
+      ip->addrs[bn] = addr = balloc(ip->dev); // 如果直接快未分配，通过balloc()进行分配
     return addr;
   }
+
+  // 如果 bn 大于等于 NDIRECT，调整 bn 值，跳过直接块部分。
   bn -= NDIRECT;
 
+  // 如果 bn 小于 NINDIRECT，映射到间接块。
   if(bn < NINDIRECT){
     // Load indirect block, allocating if necessary.
     if((addr = ip->addrs[NDIRECT]) == 0)
       ip->addrs[NDIRECT] = addr = balloc(ip->dev);
+    // 读取间接块的内容。
     bp = bread(ip->dev, addr);
     a = (uint*)bp->data;
+    // 如果间接块中没有该地址，则分配一个新的数据块，并更新间接块。
     if((addr = a[bn]) == 0){
       a[bn] = addr = balloc(ip->dev);
       log_write(bp);
@@ -427,6 +447,31 @@ bmap(struct inode *ip, uint bn)
     return addr;
   }
 
+  bn -= NINDIRECT;
+
+  // 二级间接块，参考一级间接块处理的逻辑
+  if(bn < NDINDIRECT){
+    if((addr = ip->addrs[NDIRECT + 1]) == 0)
+      ip->addrs[NDIRECT + 1] = addr = balloc(ip->dev); // 二级间接块未分配，分配新块
+    bp = bread(ip->dev, addr);
+    a = (uint*)bp->data;
+    uint index = bn / NINDIRECT;
+    if((addr = a[index]) == 0){ // 再次 check 一级间接块，确保一级间接块存在，不存在则分配
+      a[index] = addr = balloc(ip->dev);
+      log_write(bp);
+    }
+    brelse(bp);
+
+    bp = bread(ip->dev, addr);
+    a = (uint*)bp->data;
+    index = bn % NINDIRECT;
+    if((addr = a[index]) == 0){  // 确保数据块存在，不存在也要分配
+      a[index] = addr = balloc(ip->dev); 
+      log_write(bp);
+    }
+    brelse(bp);
+    return addr;
+  }
   panic("bmap: out of range");
 }
 
@@ -435,29 +480,63 @@ bmap(struct inode *ip, uint bn)
 void
 itrunc(struct inode *ip)
 {
+  // 函数描述
+  // 截断文件（释放所有块）
   int i, j;
   struct buf *bp;
-  uint *a;
+  uint *a;        // 用于访问间接块的指针数组
 
+  // 释放所有直接块
   for(i = 0; i < NDIRECT; i++){
     if(ip->addrs[i]){
+      // 释放数据块（更新位图）
       bfree(ip->dev, ip->addrs[i]);
+      // 清除inode中的指针
       ip->addrs[i] = 0;
     }
   }
 
+  // 处理一级间接块
   if(ip->addrs[NDIRECT]){
+    // 读取一级间接块
     bp = bread(ip->dev, ip->addrs[NDIRECT]);
+    // 将块数据视为指针数组
     a = (uint*)bp->data;
+    // 遍历所有间接指针
     for(j = 0; j < NINDIRECT; j++){
       if(a[j])
+        // 释放间接块指向的数据块 
         bfree(ip->dev, a[j]);
     }
+    // 释放间接块的缓冲区
     brelse(bp);
+    // 清除inode中的间接块指针
     bfree(ip->dev, ip->addrs[NDIRECT]);
     ip->addrs[NDIRECT] = 0;
   }
 
+  // 释放二级块
+if(ip->addrs[NDIRECT+1]){ // 如果二级间接块存在
+    bp = bread(ip->dev, ip->addrs[NDIRECT+1]);
+    a = (uint*)bp->data;
+    // 遍历所有一级间接块
+    for(i = 0; i < NINDIRECT; i++){
+      if(a[i]){
+        struct buf *bp2 = bread(ip->dev, a[i]);
+        uint *a2 = (uint*)bp2->data;
+        // 遍历所有一级间接块对应的二级块
+        for(j = 0; j < NINDIRECT; j++){
+          if(a2[j]) // 如果数据块存在，执行释放
+            bfree(ip->dev, a2[j]);
+        }
+        brelse(bp2);
+        bfree(ip->dev, a[i]);
+      }
+    }
+    brelse(bp);
+    bfree(ip->dev, ip->addrs[NDIRECT+1]);
+    ip->addrs[NDIRECT+1] = 0;
+  }
   ip->size = 0;
   iupdate(ip);
 }
