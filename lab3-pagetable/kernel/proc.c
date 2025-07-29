@@ -515,7 +515,7 @@ scheduler(void)
 
         // 切换到进程独立的内核页表
         w_satp(MAKE_SATP(p->kernelpgtbl));
-        sfence_vma(); // 清除快表缓存
+        sfence_vma(); // 清除快表缓存 TLB(Translation lookaside buffer)
         
         // 调度，执行进程
         swtch(&c->context, &p->context);
